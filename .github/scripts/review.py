@@ -20,26 +20,26 @@ class CodeReviewer:
         
     def get_review_prompt(self, code_diff):
         return f"""作为一个专业的代码审查员，请仔细检查以下代码差异并提供不超过3个最重要的改进建议。
-代码差异:
-{code_diff}
+                    代码差异:
+                    {code_diff}
 
-请用以下JSON格式返回你的评审意见:
-{{
-    "comments": [
-        {{
-            "line_number": <行号>,
-            "comment": "<具体的改进建议，包括原因和建议的改进方式>"
-        }},
-        ...
-    ]
-}}
-注意:
-1. 只关注最重要的问题
-2. 评论要具体且有建设性
-3. 每个文件最多提供3条评论
-4. 确保行号对应代码差异中的实际行号
-5. 返回的必须是合法的JSON格式
-"""
+                    请用以下JSON格式返回你的评审意见:
+                    {{
+                        "comments": [
+                            {{
+                                "line_number": <行号>,
+                                "comment": "<具体的改进建议，包括原因和建议的改进方式>"
+                            }},
+                            ...
+                        ]
+                    }}
+                    注意:
+                    1. 只关注最重要的问题
+                    2. 评论要具体且有建设性
+                    3. 每个文件最多提供3条评论
+                    4. 确保行号对应代码差异中的实际行号
+                    5. 返回的必须是合法的JSON格式
+                    """
 
     def analyze_code(self, diff_content):
         response = self.client.chat.completions.create(
@@ -55,7 +55,12 @@ class CodeReviewer:
         
         try:
             # 解析返回的内容
-            content = response.choices[0].message.content
+            content = response.choices[0].message.content.strip()
+            # 去掉可能存在的Markdown代码块标记
+            if content.startswith('```json'):
+                content = content[len('```json'):].strip()
+            if content.endswith('```'):
+                content = content[:-len('```')].strip()
             return json.loads(content)
         except json.JSONDecodeError as e:
             print(f"Error parsing JSON response: {str(e)}")
