@@ -17,12 +17,19 @@ class CodeReviewer:
             raise ValueError("GITHUB_REPOSITORY environment variable is not set.")
         self.repo = self.gh.get_repo(self.repo_name)
     
+    def parse_hunk_header(self, header):
+        """解析 diff hunk 头部"""
+        match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', header)
+        if match:
+            return int(match.group(1))
+        return None
+
     def calculate_position(self, patch, target_line):
         """
         计算评论在 diff 中的实际位置
         patch: diff 内容
         target_line: 目标行号
-        返回: 相对于 @@ 标记的位置
+        返回: 相对于 hunk 开始的位置
         """
         if not patch:
             return None
@@ -30,31 +37,31 @@ class CodeReviewer:
         lines = patch.split('\n')
         position = 0
         current_line = 0
+        is_in_hunk = False
         
-        for line in lines:
-            # 找到第一个 @@ 标记
+        for i, line in enumerate(lines):
             if line.startswith('@@'):
-                # 解析 @@ -a,b +c,d @@ 格式
-                match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
-                if match:
-                    current_line = int(match.group(1)) - 1
-                position = 1
+                is_in_hunk = True
+                current_line = self.parse_hunk_header(line)
+                if current_line is None:
+                    return None
+                current_line -= 1  # 调整起始行号
                 continue
             
-            if line.startswith('-'):
-                # 删除的行不增加当前行号
-                position += 1
+            if not is_in_hunk:
                 continue
                 
-            if line.startswith('+'):
+            position += 1
+            
+            if line.startswith('-'):
+                continue
+            elif line.startswith('+'):
                 current_line += 1
-                position += 1
-            elif not line.startswith('\\'):  # 忽略 No newline at end of file
+            elif not line.startswith('\\'):  # 忽略 'No newline at end of file'
                 current_line += 1
-                position += 1
                 
             if current_line == target_line:
-                return position - 1  # 减1是因为我们要指向当前行
+                return position
                 
         return None
 
@@ -117,8 +124,6 @@ class CodeReviewer:
 
         pr = self.repo.get_pull(pr_number)
         files = pr.get_files()
-        commit_id = pr.get_commits().reversed[0].sha  # 获取最新的commit SHA
-        
         review_comments = []
         
         for file in files:
@@ -137,19 +142,26 @@ class CodeReviewer:
                         })
                     else:
                         print(f"Could not determine position for line {comment['line_number']} in {file.filename}")
+                        # 调试信息
+                        print(f"Patch content for {file.filename}:")
+                        print(file.patch[:200])  # 只打印前200个字符作为示例
             except Exception as e:
                 print(f"Error reviewing file {file.filename}: {str(e)}")
         
         if review_comments:
             try:
-                pr.create_review(
-                    commit_id=commit_id,  # 使用最新的commit SHA
+                # 创建评审
+                review = pr.create_review(
+                    body="Code review comments",
                     event='COMMENT',
                     comments=review_comments
                 )
                 print(f"Successfully added {len(review_comments)} comments to the pull request")
             except Exception as e:
                 print(f"Error submitting review: {str(e)}")
+                # 打印更多调试信息
+                print("Review comments data:")
+                print(json.dumps(review_comments, indent=2))
 
     def _should_review_file(self, filename):
         ignore_extensions = ['.md', '.txt', '.json', '.yaml', '.yml']
