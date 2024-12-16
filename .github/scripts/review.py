@@ -13,7 +13,6 @@ class CodeReviewer:
         self.api_key = os.getenv('ZHIPU_API_KEY')
         self.client = ZhipuAI(api_key=self.api_key)
         self.repo_name = os.getenv('GITHUB_REPOSITORY')
-        self.repo_name = os.getenv('GITHUB_REPOSITORY')
         if not self.repo_name:
             raise ValueError("GITHUB_REPOSITORY environment variable is not set.")
         self.repo = self.gh.get_repo(self.repo_name)
@@ -81,45 +80,39 @@ class CodeReviewer:
         pr = self.repo.get_pull(pr_number)
         files = pr.get_files()
 
+        # 收集所有评论
+        review_comments = []
+        
         for file in files:
             if not self._should_review_file(file.filename):
                 continue
 
             try:
                 review_result = self.analyze_code(file.patch)
-                self._submit_comments(pr, file, review_result.get('comments', []))
+                for comment in review_result.get('comments', [])[:3]:  # 限制每个文件最多3条评论
+                    review_comments.append({
+                        'path': file.filename,
+                        'position': comment['line_number'],
+                        'body': comment['comment']
+                    })
             except Exception as e:
                 print(f"Error reviewing file {file.filename}: {str(e)}")
+        
+        # 如果有评论，创建一个批量review
+        if review_comments:
+            try:
+                pr.create_review(
+                    event='COMMENT',
+                    comments=review_comments
+                )
+                print(f"Successfully added {len(review_comments)} comments to the pull request")
+            except Exception as e:
+                print(f"Error submitting review: {str(e)}")
 
     def _should_review_file(self, filename):
         # 可以根据需要添加文件过滤规则
         ignore_extensions = ['.md', '.txt', '.json', '.yaml', '.yml']
         return not any(filename.endswith(ext) for ext in ignore_extensions)
-
-    def _submit_comments(self, pr, file, comments):
-        for comment in comments[:3]:  # 限制每个文件最多3条评论
-            try:
-                line_number = comment['line_number']
-                comment_body = comment['comment']
-                
-                # 创建行级评论
-                pr.create_review(
-                    commit_id=file.sha,
-                    body={
-                        'body': '',
-                        'event': 'COMMENT',
-                        'comments': [
-                            {
-                                'path': file.filename,
-                                'position': line_number,
-                                'body': comment_body
-                            }
-                        ]
-                    }
-                )
-                print(f"Successfully added comment to line {line_number} in {file.filename}")
-            except Exception as e:
-                print(f"Error submitting comment: {str(e)}")
 
 def main():
     reviewer = CodeReviewer()
