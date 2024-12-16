@@ -23,57 +23,77 @@ class CodeReviewer:
         if match:
             return int(match.group(1))
         return None
-
-    def calculate_position(self, patch, target_line):
+    
+    def parse_diff_with_line_mapping(self, patch):
         """
-        计算评论在 diff 中的实际位置
-        patch: diff 内容
-        target_line: 目标行号
-        返回: 相对于 hunk 开始的位置
+        解析 diff 内容，创建行号到位置的映射
+        返回: (line_to_position, code_blocks)
         """
         if not patch:
-            return None
+            return {}, []
         
         lines = patch.split('\n')
         position = 0
         current_line = 0
-        is_in_hunk = False
+        line_to_position = {}
+        code_blocks = []
+        current_block = []
+        block_start_line = None
         
         for i, line in enumerate(lines):
             if line.startswith('@@'):
-                is_in_hunk = True
+                if current_block:
+                    code_blocks.append({
+                        'code': '\n'.join(current_block),
+                        'start_line': block_start_line,
+                        'end_line': current_line - 1
+                    })
+                    current_block = []
+                
                 current_line = self.parse_hunk_header(line)
                 if current_line is None:
-                    return None
-                current_line -= 1  # 调整起始行号
+                    continue
+                current_line -= 1
+                block_start_line = current_line + 1
                 continue
             
-            if not is_in_hunk:
-                continue
-                
             position += 1
             
             if line.startswith('-'):
                 continue
             elif line.startswith('+'):
                 current_line += 1
-            elif not line.startswith('\\'):  # 忽略 'No newline at end of file'
+                current_block.append(line[1:])  # 去掉'+'前缀
+                line_to_position[current_line] = position
+            elif not line.startswith('\\'):
                 current_line += 1
-                
-            if current_line == target_line:
-                return position
-                
-        return None
+                current_block.append(line)
+                line_to_position[current_line] = position
+        
+        if current_block:
+            code_blocks.append({
+                'code': '\n'.join(current_block),
+                'start_line': block_start_line,
+                'end_line': current_line
+            })
+        
+        return line_to_position, code_blocks
 
-    def get_review_prompt(self, code_diff):
-        return f"""作为一个专业的代码审查员，请仔细检查以下代码差异并提供改进建议。
-                    代码差异:
-                    {code_diff}
+    def get_review_prompt(self, code_blocks):
+        blocks_text = '\n\n'.join([
+            f"Block {i+1} (Lines {block['start_line']}-{block['end_line']}):\n{block['code']}"
+            for i, block in enumerate(code_blocks)
+        ])
+        
+        return f"""作为一个专业的代码审查员，请仔细检查以下代码块并提供改进建议。
+                    代码块:
+                    {blocks_text}
 
                     请用以下JSON格式返回你的评审意见:
                     {{
                         "comments": [
                             {{
+                                "block_index": <代码块索引，从1开始>,
                                 "line_number": <行号>,
                                 "comment": "<具体的改进建议，包括原因和建议的改进方式>"
                             }},
@@ -83,16 +103,16 @@ class CodeReviewer:
                     注意:
                     1. 只关注最重要的问题
                     2. 评论要具体且有建设性
-                    3. 确保行号对应代码差异中的实际行号
+                    3. 确保行号在对应代码块的行号范围内
                     4. 返回的必须是合法的JSON格式
                     """
 
-    def analyze_code(self, diff_content):
+    def analyze_code(self, code_blocks):
         response = self.client.chat.completions.create(
             model="glm-4-flash",
             messages=[
                 {"role": "system", "content": "你是一个经验丰富的代码审查专家。"},
-                {"role": "user", "content": self.get_review_prompt(diff_content)}
+                {"role": "user", "content": self.get_review_prompt(code_blocks)}
             ],
             temperature=0.3,
             top_p=0.85,
@@ -130,17 +150,30 @@ class CodeReviewer:
                 continue
 
             try:
-                review_result = self.analyze_code(file.patch)
+                # 解析 diff 并获取行号映射和代码块
+                line_to_position, code_blocks = self.parse_diff_with_line_mapping(file.patch)
+                
+                if not code_blocks:
+                    continue
+                
+                # 分析代码并获取评论
+                review_result = self.analyze_code(code_blocks)
+                
                 for comment in review_result.get('comments', []):
-                    position = self.calculate_position(file.patch, comment['line_number'])
-                    if position is not None:
-                        all_review_comments.append({
-                            'path': file.filename,
-                            'position': position,
-                            'body': comment['comment']
-                        })
-                    else:
-                        print(f"Could not determine position for line {comment['line_number']} in {file.filename}")
+                    block_index = comment.get('block_index', 1) - 1
+                    if 0 <= block_index < len(code_blocks):
+                        block = code_blocks[block_index]
+                        line_number = comment['line_number']
+                        
+                        # 确保行号在块的范围内
+                        if block['start_line'] <= line_number <= block['end_line']:
+                            position = line_to_position.get(line_number)
+                            if position is not None:
+                                all_review_comments.append({
+                                    'path': file.filename,
+                                    'position': position,
+                                    'body': comment['comment']
+                                })
             except Exception as e:
                 print(f"Error reviewing file {file.filename}: {str(e)}")
         
