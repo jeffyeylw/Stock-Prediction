@@ -1,7 +1,7 @@
 import os
 import json
 from github import Github
-import zhipuai
+from zhipuai import ZhipuAI
 from dotenv import load_dotenv
 
 class CodeReviewer:
@@ -10,10 +10,14 @@ class CodeReviewer:
         load_dotenv()
         
         self.gh = Github(os.getenv('GITHUB_TOKEN'))
-        zhipuai.api_key = os.getenv('ZHIPU_API_KEY')
+        self.api_key = os.getenv('ZHIPU_API_KEY')
+        self.client = ZhipuAI(api_key=self.api_key)
         self.repo_name = os.getenv('GITHUB_REPOSITORY')
+        self.repo_name = os.getenv('GITHUB_REPOSITORY')
+        if not self.repo_name:
+            raise ValueError("GITHUB_REPOSITORY environment variable is not set.")
         self.repo = self.gh.get_repo(self.repo_name)
-
+        
     def get_review_prompt(self, code_diff):
         return f"""作为一个专业的代码审查员，请仔细检查以下代码差异并提供不超过3个最重要的改进建议。
 代码差异:
@@ -38,7 +42,7 @@ class CodeReviewer:
 """
 
     def analyze_code(self, diff_content):
-        response = zhipuai.model.chat.completions.create(
+        response = self.client.chat.completions.create(
             model="glm-4-flash",  # 使用 glm-4-flash 模型
             messages=[
                 {"role": "system", "content": "你是一个经验丰富的代码审查专家。"},

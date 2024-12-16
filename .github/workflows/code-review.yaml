@@ -28,6 +28,6 @@ jobs:
       
       - name: Run code review
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets._GITHUB_TOKEN }}
           ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
         run: python .github/scripts/review.py
