@@ -103,11 +103,19 @@ class CodeReviewer:
                 comment_body = comment['comment']
                 
                 # 创建行级评论
-                pr.create_review_comment(
-                    body=comment_body,
+                pr.create_review(
                     commit_id=file.sha,
-                    path=file.filename,
-                    line=line_number
+                    body={
+                        'body': '',
+                        'event': 'COMMENT',
+                        'comments': [
+                            {
+                                'path': file.filename,
+                                'position': line_number,
+                                'body': comment_body
+                            }
+                        ]
+                    }
                 )
                 print(f"Successfully added comment to line {line_number} in {file.filename}")
             except Exception as e:
