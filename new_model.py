@@ -21,26 +21,33 @@ plt.show()
 # Visualize the trading volume
 plt.figure(figsize=(15, 5))
 aapl['Volume'].plot()
-plt.title('Sales Volume for AAPL')
+plt.title('Trading Volume for AAPL')
 plt.xlabel('Date')
 plt.ylabel('Volume')
 plt.show()
 
 # Feature scaling
-close_val = aapl['Close'].values
-close_val = close_val.reshape(-1, 1)
+close_val = aapl['Close'].values.reshape(-1, 1)
 scaler = MinMaxScaler(feature_range=(0, 1))
 scaled_data = scaler.fit_transform(close_val)
 
-# Prepare training data
-train_data = scaled_data[:3000, :]
-x_train = []
-y_train = []
+# Prepare training and test data
+train_size = int(len(scaled_data) * 0.8)
+train_data = scaled_data[:train_size, :]
+test_data = scaled_data[train_size:, :]
+
+x_train, y_train = [], []
 for i in range(60, len(train_data)):
     x_train.append(train_data[i-60:i, 0])
     y_train.append(train_data[i, 0])
 x_train, y_train = np.array(x_train), np.array(y_train)
 x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
+
+x_test, y_test = [], close_val[train_size+60:]
+for i in range(60, len(test_data)):
+    x_test.append(test_data[i-60:i, 0])
+x_test = np.array(x_test)
+x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
 
 # Build the LSTM model
 model = Sequential()
@@ -53,26 +60,18 @@ model.add(Dropout(0.2))
 model.add(Dense(units=1))
 
 model.compile(optimizer='adam', loss='mean_squared_error')
-model.fit(x_train, y_train, epochs=100, batch_size=32)
 
-# Prepare test data
-test_data = scaled_data[3000:, :]
-x_test = []
-y_test = close_val[3000:, :]
-for i in range(60, len(test_data)):
-    x_test.append(test_data[i-60:i, 0])
-x_test = np.array(x_test)
-x_test = np.reshape(x_test, (x_test.shape[0], x_test.shape[1], 1))
+# Train the model
+model.fit(x_train, y_train, epochs=100, batch_size=32, verbose=1)
 
 # Predicting the prices
 predicted_prices = model.predict(x_test)
 predicted_prices = scaler.inverse_transform(predicted_prices)
 
 # Reformat the data for MSE calculation
-date_index = aapl.index[3000+len(x_test):3000+len(x_test)+len(predicted_prices)]
+date_index = aapl.index[train_size+60:train_size+60+len(predicted_prices)]
 predicted_prices_df = pd.DataFrame(predicted_prices, index=date_index, columns=['Predicted Close'])
-
-actual_prices = aapl['Close'][3000+len(x_test):3000+len(x_test)+len(predicted_prices)]
+actual_prices = aapl['Close'][train_size+60:train_size+60+len(predicted_prices)]
 
 # Define MSE calculation function
 def calculate_mse(predicted, actual):
@@ -90,3 +89,6 @@ plt.xlabel('Time')
 plt.ylabel('AAPL Stock Price')
 plt.legend()
 plt.show()
+
+
+
