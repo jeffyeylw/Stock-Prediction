@@ -45,32 +45,6 @@ for company, com_name in zip(company_list, company_name):
     company["company_name"] = com_name
 
 df = pd.concat(company_list, axis=0)
-# Let's see a historical view of the closing price
-plt.figure(figsize=(15, 10))
-plt.subplots_adjust(top=1.25, bottom=1.2)
-
-for i, company in enumerate(company_list, 1):
-    plt.subplot(2, 2, i)
-    company['Adj Close'].plot()
-    plt.ylabel('Adj Close')
-    plt.xlabel(None)
-    plt.title(f"Closing Price of {tech_list[i - 1]}")
-
-plt.tight_layout()
-
-
-# Visualize the trading volume for each stock
-plt.figure(figsize=(15, 10))
-plt.subplots_adjust(top=1.25, bottom=1.2)
-
-for i, company in enumerate(company_list, 1):
-    plt.subplot(2, 2, i)
-    company['Volume'].plot()
-    plt.ylabel('Volume')
-    plt.xlabel(None)
-    plt.title(f"Sales Volume for {tech_list[i - 1]}")
-
-plt.tight_layout()
 
 # Feature sclaing. Close price is used as the feature in time series
 close_val = aapl_prices['Close'].values
