@@ -16,52 +16,42 @@ class CodeReviewer:
         if not self.repo_name:
             raise ValueError("GITHUB_REPOSITORY environment variable is not set.")
         self.repo = self.gh.get_repo(self.repo_name)
-    
-    def parse_hunk_header(self, header):
-        """解析 diff hunk 头部"""
-        match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', header)
-        if match:
-            return int(match.group(1))
-        return None
 
-    def calculate_position(self, patch, target_line):
+    def find_line_in_hunks(self, patch, target_line):
         """
-        计算评论在 diff 中的实际位置
-        patch: diff 内容
-        target_line: 目标行号
-        返回: 相对于 hunk 开始的位置
+        在patch的所有hunks中查找目标行并返回正确的position
         """
         if not patch:
             return None
+
+        hunks = patch.split('\n@@')[1:]  # 分割所有的hunks
+        position = 0  # 整体position计数器
         
-        lines = patch.split('\n')
-        position = 0
-        current_line = 0
-        is_in_hunk = False
-        
-        for i, line in enumerate(lines):
-            if line.startswith('@@'):
-                is_in_hunk = True
-                current_line = self.parse_hunk_header(line)
-                if current_line is None:
-                    return None
-                current_line -= 1  # 调整起始行号
-                continue
-            
-            if not is_in_hunk:
+        for hunk in hunks:
+            if not hunk.strip():
                 continue
                 
-            position += 1
-            
-            if line.startswith('-'):
+            hunk_lines = hunk.split('\n')
+            # 解析hunk头部
+            header = hunk_lines[0]
+            match = re.match(r'\s*-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s*@@', header)
+            if not match:
                 continue
-            elif line.startswith('+'):
-                current_line += 1
-            elif not line.startswith('\\'):  # 忽略 'No newline at end of file'
-                current_line += 1
                 
-            if current_line == target_line:
-                return position
+            current_line = int(match.group(1))
+            position += 1  # 为hunk头部增加position计数
+            
+            for line in hunk_lines[1:]:
+                if line.startswith('+'):
+                    if current_line == target_line:
+                        return position
+                    current_line += 1
+                elif line.startswith('-'):
+                    pass  # 删除的行不影响当前行号
+                elif not line.startswith('\\'):  # 忽略 'No newline' 标记
+                    current_line += 1
+                    
+                position += 1
                 
         return None
 
@@ -84,7 +74,7 @@ class CodeReviewer:
                     1. 只关注最重要的问题
                     2. 评论要具体且有建设性
                     3. 每个文件最多提供3条评论
-                    4. 确保行号对应代码差异中的实际行号
+                    4. 确保行号对应代码差异中的新添加或修改的行
                     5. 返回的必须是合法的JSON格式
                     """
 
@@ -133,7 +123,7 @@ class CodeReviewer:
             try:
                 review_result = self.analyze_code(file.patch)
                 for comment in review_result.get('comments', [])[:3]:
-                    position = self.calculate_position(file.patch, comment['line_number'])
+                    position = self.find_line_in_hunks(file.patch, comment['line_number'])
                     if position is not None:
                         review_comments.append({
                             'path': file.filename,
@@ -142,15 +132,14 @@ class CodeReviewer:
                         })
                     else:
                         print(f"Could not determine position for line {comment['line_number']} in {file.filename}")
-                        # 调试信息
-                        print(f"Patch content for {file.filename}:")
-                        print(file.patch[:200])  # 只打印前200个字符作为示例
+                        # 打印完整的patch内容以便调试
+                        print(f"Complete patch for {file.filename}:")
+                        print(file.patch)
             except Exception as e:
                 print(f"Error reviewing file {file.filename}: {str(e)}")
         
         if review_comments:
             try:
-                # 创建评审
                 review = pr.create_review(
                     body="Code review comments",
                     event='COMMENT',
@@ -159,7 +148,6 @@ class CodeReviewer:
                 print(f"Successfully added {len(review_comments)} comments to the pull request")
             except Exception as e:
                 print(f"Error submitting review: {str(e)}")
-                # 打印更多调试信息
                 print("Review comments data:")
                 print(json.dumps(review_comments, indent=2))
 
