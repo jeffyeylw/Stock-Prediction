@@ -11,10 +11,13 @@ class CodeReviewer:
         
         self.gh = Github(os.getenv('GITHUB_TOKEN'))
         self.api_key = os.getenv('ZHIPU_API_KEY')
-        self.client = ZhipuAI(api_key=api_key)
+        self.client = ZhipuAI(api_key=self.api_key)
         self.repo_name = os.getenv('GITHUB_REPOSITORY')
+        self.repo_name = os.getenv('GITHUB_REPOSITORY')
+        if not self.repo_name:
+            raise ValueError("GITHUB_REPOSITORY environment variable is not set.")
         self.repo = self.gh.get_repo(self.repo_name)
-
+        
     def get_review_prompt(self, code_diff):
         return f"""作为一个专业的代码审查员，请仔细检查以下代码差异并提供不超过3个最重要的改进建议。
 代码差异:
