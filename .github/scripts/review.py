@@ -9,7 +9,7 @@ class CodeReviewer:
         # 加载环境变量
         load_dotenv()
         
-        self.gh = Github(os.getenv('GITHUB_TOKEN'))
+        self.gh = Github(os.getenv('_GITHUB_TOKEN'))
         zhipuai.api_key = os.getenv('ZHIPU_API_KEY')
         self.repo_name = os.getenv('GITHUB_REPOSITORY')
         self.repo = self.gh.get_repo(self.repo_name)
